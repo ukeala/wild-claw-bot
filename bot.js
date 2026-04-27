@@ -14,10 +14,27 @@ client.once('clientReady', () => {
   console.log(`Bot hazır: ${client.user.tag}`);
 });
 
+////////////////////////////////////////////////////////
+
+
 client.login(process.env.DISCORD_TOKEN);
 
 
 ///////////////////////////////////////////////////////////////////////////////
+//                   WEB SERVER YAPMA
+
+const express = require("express");
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("Bot aktif");
+});
+
+app.listen(process.env.PORT || 3000);
+
+
+
+////////////////////////////////////////////////////////////
 
 
 // XP YERLERİ
