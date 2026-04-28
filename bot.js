@@ -19,6 +19,8 @@ client.once('clientReady', () => {
 
 client.login(process.env.DISCORD_TOKEN);
 
+require("dotenv").config();
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //                   WEB SERVER YAPMA
