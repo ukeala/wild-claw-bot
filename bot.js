@@ -130,41 +130,51 @@ client.on('messageCreate', (message) => {
 ///////////////////////////////////////////////////////////////////////////////
 
 
+///                  LEADER BOT OW YEAH
 
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
 
-  // !leaderboard komutu
-  if (message.content === "!leaderboard") {
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
+
+const commands = [
+  new SlashCommandBuilder()
+    .setName('leaderboard')
+    .setDescription('XP leaderboard gösterir')
+].map(cmd => cmd.toJSON());
+
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+(async () => {
+  try {
+    await rest.put(
+      Routes.applicationCommands("CLIENT_ID_BURAYA"),
+      { body: commands }
+    );
+    console.log("Slash komut yüklendi");
+  } catch (err) {
+    console.error(err);
+  }
+})();
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'leaderboard') {
 
     const medals = ["🥇", "🥈", "🥉"];
-
     const getLevel = (xp) => Math.floor(xp / 100);
 
     const leaderboard = Object.entries(db)
-      .filter(u => u[1] && typeof u[1].xp === "number")
       .sort((a, b) => b[1].xp - a[1].xp)
       .slice(0, 10);
 
-    const description = leaderboard.length
-      ? leaderboard.map((user, i) => {
-          const medal = medals[i] || `\`${i + 1}\``;
-          const xp = user[1].xp;
-          const level = getLevel(xp);
+    const description = leaderboard.map((user, i) => {
+      const medal = medals[i] || `\`${i + 1}\``;
+      const xp = user[1].xp;
+      const level = getLevel(xp);
 
-          return `${medal} **<@${user[0]}>**
-> 🏅 Seviye: \`${level}\`
-> 💎 XP: \`${xp.toLocaleString()}\``;
-        }).join("\n\n")
-      : "❌ Leaderboard boş!";
+      return `${medal} <@${user[0]}> - Seviye ${level} (${xp} XP)`;
+    }).join("\n");
 
-    const embed = new EmbedBuilder()
-      .setTitle("🐺 WILD CLAW LEADERBOARD")
-      .setDescription(description)
-      .setColor("#6a00ff")
-      .setFooter({ text: "🔥 Vahşi olan zirvede kalır" })
-      .setTimestamp();
-
-    return message.reply({ embeds: [embed] });
+    await interaction.reply(description || "Boş");
   }
 });
