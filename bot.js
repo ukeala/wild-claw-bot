@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 
 const client = new Client({
   intents: [
@@ -112,11 +112,11 @@ if (fs.existsSync('./database.json')) {
 client.on('messageCreate', (message) => {
   if (message.author.bot) return;
 
-  if (message.content === '!xp') {
+  if (message.content === '/xp') {
     const userId = message.author.id;
 
     // kullanıcı yoksa 0 yap
-    if (!db[userId]) {
+    if (db[userId]) {
   db[userId] = {
     xp: 0,
     lastReward: Date.now()
@@ -133,7 +133,6 @@ client.on('messageCreate', (message) => {
 ///                  LEADER BOT OW YEAH
 
 
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 
 const commands = [
   new SlashCommandBuilder()
