@@ -301,3 +301,15 @@ setInterval(() => {
 
   console.log("💾 DB kaydedildi (batch)");
 }, 30000); // 30 saniyede 1 kayıt
+
+
+//////////////////////////
+
+const express = require("express");
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("Bot aktif");
+});
+
+app.listen(3000, () => console.log("Web server çalışıyor"));
