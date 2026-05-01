@@ -1,3 +1,6 @@
+require("dotenv").config();
+const fs = require("fs");
+
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 
 const client = new Client({
@@ -17,9 +20,9 @@ client.once('clientReady', () => {
 ////////////////////////////////////////////////////////
 
 
-require("dotenv").config();
 
 client.login(process.env.DISCORD_TOKEN);
+const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID; // log atılacak kanal
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -39,141 +42,262 @@ app.listen(process.env.PORT || 3000);
 ////////////////////////////////////////////////////////////
 
 
-// XP YERLERİ
-
-const voiceSessions = new Map();
-
-client.on('voiceStateUpdate', (oldState, newState) => {
-  const userId = newState.id;
-
-  if (!oldState.channel && newState.channel) {
-    voiceSessions.set(userId, {
-      channel: newState.channelId
-    });
-  }
-
-  if (oldState.channel && !newState.channel) {
-    voiceSessions.delete(userId);
-  }
-});
-
-setInterval(() => {
-  for (const [userId, session] of voiceSessions) {
-
-    if (!db[userId]) {
-      db[userId] = { xp: 0, lastReward: Date.now() };
-    }
-
-    const now = Date.now();
-    const diff = now - db[userId].lastReward;
-
-    // 5 dakika = 300000 ms
-    if (diff >= 300000) {
-
-      const cycles = Math.floor(diff / 300000);
-
-      const gain = cycles * 10; // 5 dakika = 10 XP
-
-      db[userId].xp += gain;
-      db[userId].lastReward = now;
-
-      console.log(`${userId} +${gain} XP (5 min batch)`);
-    }
-  }
-
-  fs.writeFileSync('./database.json', JSON.stringify(db, null, 2));
-}, 60000);
-
-
-
-
-///////////////////////////////////////////////////////////////////////////////
-
 // DATTTAAA BASSEEE
-
-const fs = require('fs');
 
 let db = {};
 
-// database yükle
+// DATABASE YÜKLE
 
-if (fs.existsSync('./database.json')) {
-  db = JSON.parse(fs.readFileSync('./database.json', 'utf8'));
+if (fs.existsSync('./database.json')) { db = JSON.parse(fs.readFileSync('./database.json', 'utf8')); }
+
+// DATABASE KAYDET
+
+function saveDB() {
+  fs.writeFileSync('./database.json', JSON.stringify(db, null, 2));
 }
 
+// 🔧 DB FIX (eksik verileri düzeltir)
+
+for (const id in db) {
+  if (typeof db[id].messageXP !== "number") db[id].messageXP = 0;
+  if (typeof db[id].voiceXP !== "number") db[id].voiceXP = 0;
+}
+saveDB();
 
 
 ///////////////////////////////////////////////////////////////////////////////
 
-
-
-// !XP SİSTEMİ
-
-client.on('messageCreate', (message) => {
-  if (message.author.bot) return;
-
-  if (message.content === '/xp') {
-    const userId = message.author.id;
-
-    // kullanıcı yoksa 0 yap
-    if (db[userId]) {
-  db[userId] = {
-    xp: 0,
-    lastReward: Date.now()
-  };
-}
-
-     message.reply(`🎧 **XP:  **${db[userId].xp}`);
-  }
-});
-
-///////////////////////////////////////////////////////////////////////////////
-
-
-///                  LEADER BOT OW YEAH
-
-
+// SLASH KOMUTU
 
 const commands = [
   new SlashCommandBuilder()
-    .setName('leaderboard')
-    .setDescription('XP leaderboard gösterir')
+    .setName('xp')
+    .setDescription('XP gösterir')
+
+
 ].map(cmd => cmd.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-(async () => {
-  try {
-    await rest.put(
-      Routes.applicationCommands("CLIENT_ID_BURAYA"),
-      { body: commands }
-    );
-    console.log("Slash komut yüklendi");
-  } catch (err) {
-    console.error(err);
-  }
-})();
+/////////////////////////////////////////////////////////////////f//////////////
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+//  AYARLAR
 
-  if (interaction.commandName === 'leaderboard') {
+ // log atılacak kanal
 
-    const medals = ["🥇", "🥈", "🥉"];
-    const getLevel = (xp) => Math.floor(xp / 100);
+const MESSAGE_XP = 5;        // 💬 mesaj başına XP
+const VOICE_XP = 10;         // 🎧 5 dk başına XP
+const VOICE_INTERVAL = 5 * 60 * 1000; // 5 dakika
 
-    const leaderboard = Object.entries(db)
-      .sort((a, b) => b[1].xp - a[1].xp)
-      .slice(0, 10);
+const LEVEL_BASE = 100;      // 🧠 level için gereken XP (örn: 100 = 100 xp 1 level)
 
-    const description = leaderboard.map((user, i) => {
-      const medal = medals[i] || `\`${i + 1}\``;
-      const xp = user[1].xp;
-      const level = getLevel(xp);
+//////////// LEVEL
 
-      return `${medal} <@${user[0]}> - Seviye ${level} (${xp} XP)`;
-    }).join("\n");
+ function getLevel(xp) {
+  return Math.floor(xp / LEVEL_BASE);
+}
 
-    await interaction.reply(description || "Boş");
+
+///////////////////////////////////////////////////////////////////////////////
+
+//MESAJ XP SİSTEMİ
+
+client.on("messageCreate", (message) => {
+  if (message.author.bot) return;
+
+  const id = message.author.id;
+
+  if (!db[id]) db[id] = { messageXP: 0, voiceXP: 0 };
+
+  const oldLevel = getLevel(db[id].messageXP);
+
+  db[id].messageXP += MESSAGE_XP;
+
+  const newLevel = getLevel(db[id].messageXP);
+
+  saveDB();
+
+  if (newLevel > oldLevel) {
+    message.channel.send(`💬 <@${id}> mesaj level atladı! (${newLevel})`);
   }
 });
+
+///////////////
+
+//VOICE XP + LOG SİSTEMİ
+
+const voiceUsers = new Map();
+const pendingSave = new Set();
+
+client.on("voiceStateUpdate", (oldState, newState) => {
+
+  const userId = newState.id;
+  const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+
+  //  GİRİŞ
+  if (!oldState.channelId && newState.channelId) {
+    
+    if (!db[userId]) db[userId] = { messageXP: 0, voiceXP: 0 };
+
+    const time = new Date().toLocaleTimeString();
+
+      if (logChannel) {
+    logChannel.send({
+      embeds: [{
+        color: 0x2b2d31,
+        author: {
+          name: newState.member.user.username,
+          icon_url: newState.member.user.displayAvatarURL()
+        },
+        description: `**<@${userId}> ses kanalına sikişerek girdi. **`,
+        fields: [
+          {
+            name: "Giriş",
+            value: `\`${newState.channel.name}\``
+          }
+        ],
+        footer: {
+          text: "Wild Claw •  " + new Date().toLocaleTimeString("tr-TR")
+        }
+      }]
+    });
+  }
+}
+///////////////////////////////////////
+
+//////////////////////////////////////
+
+  const joined = !oldState.channelId && newState.channelId;
+  const left = oldState.channelId && !newState.channelId;
+
+  if (!db[userId]) db[userId] = { messageXP: 0, voiceXP: 0 };
+
+  // GİRİŞ
+  if (joined) {
+    if (voiceUsers.has(userId)) {
+      clearInterval(voiceUsers.get(userId));
+    }
+
+    const interval = setInterval(() => {
+      const channel = newState.channel;
+      if (!channel) return;
+
+      const oldLevel = getLevel(db[userId].voiceXP);
+
+      // 🎯 5 dk = 10 XP
+      db[userId].voiceXP += 10;
+
+      const newLevel = getLevel(db[userId].voiceXP);
+
+      pendingSave.add(userId);
+
+      if (newLevel > oldLevel) {
+        const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+        if (logChannel) {
+          logChannel.send(`🎉 <@${userId}> voice level atladı! (${newLevel})`);
+        }
+      }
+
+    }, 5 * 60 * 1000); // 5 dakika
+
+    voiceUsers.set(userId, interval);
+  }
+
+  // ÇIKIŞ
+  if (left) {
+    const interval = voiceUsers.get(userId);
+    if (interval) clearInterval(interval);
+
+    voiceUsers.delete(userId);
+  }
+
+  //  ÇIKIŞ
+  if (oldState.channelId && !newState.channelId) {
+
+    const time = new Date().toLocaleTimeString();
+
+  if (logChannel) {
+    logChannel.send({
+      embeds: [{
+        color: 0x2b2d31,
+        author: {
+          name: newState.member.user.username,
+          icon_url: newState.member.user.displayAvatarURL()
+        },
+        description: `**<@${userId}> ses kanalına götten yiyerek çıktı. **`,
+        fields: [
+          {
+            name: "Çıkış",
+            value: `\`${oldState.channel.name}\``
+          }
+        ],
+        footer: {
+          text: "Wild Claw •  " + new Date().toLocaleTimeString("tr-TR")
+        }
+      }]
+    });
+  }
+}
+  //  KANAL DEĞİŞTİRME
+if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+
+   const time = new Date().toLocaleTimeString();
+   
+  if (logChannel) {
+    logChannel.send({
+      embeds: [{
+        color: 0x2b2d31,
+        author: {
+          name: newState.member.user.username,
+          icon_url: newState.member.user.displayAvatarURL()
+        },
+        description: `**<@${userId}> yalakalık yapmak için oda değiştirdi.!**`,
+        fields: [
+          {
+            name: "Geçiş",
+            value: `\`${oldState.channel.name}\` ➝ \`${newState.channel.name}\``
+          }
+        ],
+        footer: {
+          text: "Wild Claw • " + new Date().toLocaleTimeString("tr-TR")
+        }
+      }]
+    });
+  }
+};
+});
+//////////////////////////
+
+/////////// XP KOMUTU
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "xp") {
+    const data = db[interaction.user.id] || { messageXP: 0, voiceXP: 0 };
+
+    const msgLevel = getLevel(data.messageXP);
+    const voiceLevel = getLevel(data.voiceXP);
+
+    await interaction.reply(
+      
+`💬 Mesaj: ${data.messageXP} XP | Lv: ${msgLevel}
+🎧 Ses: ${data.voiceXP} XP | Lv: ${voiceLevel}`
+    );
+  }
+})
+
+
+////////////////////////////////////
+
+////
+
+// dB OPTİMİZE KAYIT SİSTEMİ
+
+setInterval(() => {
+  if (pendingSave.size === 0) return;
+
+  saveDB(); // tek seferde kaydeder
+  pendingSave.clear();
+
+  console.log("💾 DB kaydedildi (batch)");
+}, 30000); // 30 saniyede 1 kayıt
